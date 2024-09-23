@@ -44,7 +44,7 @@ locals {
           policy_template = null
           type            = "system_managed"
           car_name        = car.name
-          key             = policy
+          key             = "car-${var.project_alias}-${car.name}-${policy}"
         }
       ]
     )
@@ -57,19 +57,21 @@ locals {
     [for policy in local.car_policies : policy if policy.type == "user_managed"]
   )
 
-  # Create policy ID map
   policy_id_map = merge(
     {
       for policy in local.all_policies : policy.key =>
       policy.type == "user_managed"
-      ? module.iam_policies[policy.key].aws_iam_policy_id
-      : try(data.kion_aws_iam_policy.system_managed[policy.key].list[0].id, null)
+      ? module.iam_policies[policy.key].policy_id
+      : null # This should never happen for all_policies, but we'll keep it as a safeguard
     },
     {
       for policy in local.car_policies : policy.key =>
       policy.type == "system_managed"
-      ? try(data.kion_aws_iam_policy.system_managed[policy.key].list[0].id, null)
-      : module.iam_policies[policy.key].aws_iam_policy_id
+      ? try(
+        [for p in var.system_managed_policies : p.id if p.name == policy.name][0],
+        null # Return null if no matching policy is found
+      )
+      : module.iam_policies[policy.key].policy_id
     }
   )
 
@@ -139,6 +141,7 @@ locals {
 
   # Process compliance standards and checks
   compliance_data = flatten([
+    # Process compliance standards defined at the top level
     can(var.compliance_standards) ? [
       for cs in var.compliance_standards : {
         name        = cs.name
@@ -150,7 +153,7 @@ locals {
               template                 = check.template
               overrides                = check.overrides
               is_system_check          = false
-              compliance_standard_name = "${var.project_alias} ${cs.name}"
+              compliance_standard_name = "${cs.name}"
               key                      = "${cs.name}-${replace(replace(basename(check.template), ".tpl", ""), "[^a-zA-Z0-9]", "")}"
             }
           ] : [],
@@ -160,14 +163,29 @@ locals {
               template                 = check.template
               overrides                = try(check.overrides, {})
               is_system_check          = true
-              compliance_standard_name = "${var.project_alias} ${cs.name}"
+              compliance_standard_name = "${cs.name}"
               key                      = "${cs.name}-${replace(replace(check.template, " ", ""), "[^a-zA-Z0-9]", "")}"
             }
           ] : []
         ])
       }
-    ] : []
+    ] : [],
+    # Process compliance standards attached to cloud rules
+    flatten([
+      for cr in var.cloud_rules :
+      can(cr.cloud_rule_attachments.compliance_standards) ? [
+        for cs_name in cr.cloud_rule_attachments.compliance_standards : {
+          name   = cs_name
+          checks = [] # No checks defined at this level
+        }
+      ] : []
+    ])
   ])
+
+  # Deduplicate compliance standards
+  unique_compliance_standards = {
+    for cs in local.compliance_data : cs.name => cs...
+  }
 
   # Flatten all compliance checks
   compliance_checks = flatten([
@@ -178,12 +196,11 @@ locals {
   compliance_standards = {
     for standard in local.compliance_data :
     standard.name => {
-      name        = "${var.project_alias} ${standard.name}"
-      description = standard.description
-      checks      = standard.checks
+      name        = "${standard.name}"
+      description = try(standard.description, null)
+      checks      = try(standard.checks, [])
     }
   }
-
   valid_user_or_group = length(var.owner_user_group_ids) > 0 || length(var.owner_user_ids) > 0
 
   all_user_groups = flatten([
@@ -212,4 +229,17 @@ locals {
       module.compliance_checks[check.key].compliance_check_id : null
     ])
   }
+
+  # Create a map for CloudFormation templates
+  cloudformation_template_map = {
+    for cft in try(var.cloudformation_templates, []) :
+    cft.name => cft
+  }
+
+  # Create an ID map for CloudFormation templates
+  cloudformation_template_id_map = {
+    for name, cft in module.cloudformation_templates :
+    name => cft.cloudformation_template_id
+  }
+
 }

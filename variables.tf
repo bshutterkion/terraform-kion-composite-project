@@ -259,3 +259,28 @@ variable "severity_type_id" {
   type        = number
   default     = 3
 }
+
+variable "system_managed_policies" {
+  description = "List of system managed policies"
+  type = list(object({
+    id                    = number
+    name                  = string
+    system_managed_policy = bool
+  }))
+}
+
+variable "cloudformation_templates" {
+  description = "List of CloudFormation templates to create"
+  type = list(object({
+    name                   = string
+    regions                = optional(list(string), ["*"])
+    description            = optional(string)
+    policy_template        = string
+    region                 = optional(string)
+    sns_arns               = optional(string)
+    template_parameters    = optional(string)
+    termination_protection = optional(bool, false)
+    tags                   = optional(map(string), {})
+  }))
+  default = []
+}
