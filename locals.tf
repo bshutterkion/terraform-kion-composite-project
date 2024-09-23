@@ -140,7 +140,7 @@ locals {
   has_compliance_checks = length(local.all_checks) > 0
 
   # Process compliance standards and checks
-  compliance_data = flatten([
+  compliance_data = concat(
     # Process compliance standards defined at the top level
     can(var.compliance_standards) ? [
       for cs in var.compliance_standards : {
@@ -173,14 +173,17 @@ locals {
     # Process compliance standards attached to cloud rules
     flatten([
       for cr in var.cloud_rules :
-      can(cr.cloud_rule_attachments.compliance_standards) ? [
-        for cs_name in cr.cloud_rule_attachments.compliance_standards : {
-          name   = cs_name
-          checks = [] # No checks defined at this level
-        }
-      ] : []
+      try(
+        [
+          for cs_name in coalesce(cr.cloud_rule_attachments.compliance_standards, []) : {
+            name   = cs_name
+            checks = [] # No checks defined at this level
+          }
+        ],
+        []
+      )
     ])
-  ])
+  )
 
   # Deduplicate compliance standards
   unique_compliance_standards = {

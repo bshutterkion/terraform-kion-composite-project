@@ -149,7 +149,7 @@ module "cloud_rules" {
   projects          = [{ id = module.project.project_id }]
 
   service_control_policies = [
-    for scp in try(each.value.cloud_rule_attachments.scps, []) : { id = module.scps[each.key].scp_id }
+    for scp in try(each.value.cloud_rule_attachments.scps, []) : { id = module.scps[scp].scp_id }
   ]
 
   aws_iam_policies = flatten([
@@ -168,7 +168,7 @@ module "cloud_rules" {
   ])
 
   compliance_standards = [
-    for cs in coalesce(try(each.value.cloud_rule_attachments.compliance_standards, []), []) : {
+    for cs in try(each.value.cloud_rule_attachments.compliance_standards, []) : {
       id = module.compliance_standards[cs].compliance_standard_id
     }
   ]
